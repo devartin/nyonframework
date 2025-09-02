@@ -37,14 +37,27 @@ export default function App() {
 				start: '/.netlify/functions/start',
 				resume: '/.netlify/functions/resume',
 				run: '/.netlify/functions/run',
+				message: '/.netlify/functions/message',
 			};
 		}
 		return {
 			start: '/api/start',
 			resume: '/api/resume',
 			run: '/api/run',
+			message: '/api/message',
 		};
 	}, [provider]);
+
+	const refreshRun = useCallback(async (id: string) => {
+		const u = new URL(baseApi + apiPaths.run, window.location.origin);
+		u.searchParams.set('runId', id);
+		if (supabaseUrl) u.searchParams.set('supabaseUrl', supabaseUrl);
+		if (supabaseAnonKey) u.searchParams.set('supabaseAnonKey', supabaseAnonKey);
+		const resp = await fetch(u.toString());
+		if (!resp.ok) return;
+		const data: RunResponse = await resp.json();
+		setMessages(data.messages || []);
+	}, [baseApi, apiPaths.run, supabaseUrl, supabaseAnonKey]);
 
 	const startRun = useCallback(async (userInput: string) => {
 		setLoading(true);
@@ -56,13 +69,27 @@ export default function App() {
 			});
 			if (!resp.ok) throw new Error(`Start failed: ${resp.status}`);
 			const data: StartResponse = await resp.json();
-			// data may include messages (vercel) or only runId (netlify)
 			setRunId((data as any).runId);
 			await refreshRun((data as any).runId);
 		} finally {
 			setLoading(false);
 		}
-	}, [supabaseUrl, supabaseAnonKey, model, agentId, systemPrompt, baseApi, apiPaths.start]);
+	}, [supabaseUrl, supabaseAnonKey, model, agentId, systemPrompt, baseApi, apiPaths.start, refreshRun]);
+
+	const sendMessage = useCallback(async (userInput: string) => {
+		setLoading(true);
+		try {
+			const resp = await fetch(baseApi + apiPaths.message, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ supabaseUrl, supabaseAnonKey, model, agentId, runId, systemPrompt, userInput }),
+			});
+			if (!resp.ok) throw new Error(`Message failed: ${resp.status}`);
+			await refreshRun(runId);
+		} finally {
+			setLoading(false);
+		}
+	}, [supabaseUrl, supabaseAnonKey, model, agentId, runId, systemPrompt, baseApi, apiPaths.message, refreshRun]);
 
 	const resumeRun = useCallback(async () => {
 		if (!runId) return;
@@ -78,25 +105,18 @@ export default function App() {
 		} finally {
 			setLoading(false);
 		}
-	}, [runId, supabaseUrl, supabaseAnonKey, agentId, model, baseApi, apiPaths.resume, systemPrompt]);
-
-	const refreshRun = useCallback(async (id: string) => {
-		const u = new URL(baseApi + apiPaths.run, window.location.origin);
-		u.searchParams.set('runId', id);
-		if (supabaseUrl) u.searchParams.set('supabaseUrl', supabaseUrl);
-		if (supabaseAnonKey) u.searchParams.set('supabaseAnonKey', supabaseAnonKey);
-		const resp = await fetch(u.toString());
-		if (!resp.ok) return;
-		const data: RunResponse = await resp.json();
-		setMessages(data.messages || []);
-	}, [baseApi, apiPaths.run, supabaseUrl, supabaseAnonKey]);
+	}, [runId, supabaseUrl, supabaseAnonKey, agentId, model, baseApi, apiPaths.resume, systemPrompt, refreshRun]);
 
 	const onSubmit = useCallback(async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!input.trim()) return;
-		await startRun(input.trim());
+		if (!runId) {
+			await startRun(input.trim());
+		} else {
+			await sendMessage(input.trim());
+		}
 		setInput('');
-	}, [input, startRun]);
+	}, [input, runId, startRun, sendMessage]);
 
 	return (
 		<div className="h-screen w-screen bg-neutral-950 text-neutral-100 grid grid-cols-12">
