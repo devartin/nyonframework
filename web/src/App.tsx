@@ -69,12 +69,20 @@ export default function App() {
 			});
 			if (!resp.ok) throw new Error(`Start failed: ${resp.status}`);
 			const data: StartResponse = await resp.json();
-			setRunId((data as any).runId);
-			await refreshRun((data as any).runId);
+			const newRunId = (data as any).runId;
+			setRunId(newRunId);
+			if (provider === 'netlify') {
+				await fetch(baseApi + apiPaths.resume, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ supabaseUrl, supabaseAnonKey, agentId, model, runId: newRunId, systemPrompt }),
+				});
+			}
+			await refreshRun(newRunId);
 		} finally {
 			setLoading(false);
 		}
-	}, [supabaseUrl, supabaseAnonKey, model, agentId, systemPrompt, baseApi, apiPaths.start, refreshRun]);
+	}, [supabaseUrl, supabaseAnonKey, model, agentId, systemPrompt, baseApi, apiPaths.start, apiPaths.resume, refreshRun, provider]);
 
 	const sendMessage = useCallback(async (userInput: string) => {
 		setLoading(true);
