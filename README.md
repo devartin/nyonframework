@@ -10,8 +10,10 @@ Serverless-safe AI agent scaffolding for Vercel and Netlify with Supabase state.
 
 ### Setup
 1) Install deps: `npm i`
-2) In Supabase, run `db/schema.sql`.
-3) Set env on hosting: `OPENAI_API_KEY`. Optionally `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
+2) Choose state backend:
+   - Supabase: run `db/schema.sql`, set `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
+   - Upstash Redis (no SQL): set `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
+3) Set `OPENAI_API_KEY` on hosting.
 
 ### Usage
 - Vercel endpoints: `/api/start`, `/api/resume`, `/api/run`, `/api/message`

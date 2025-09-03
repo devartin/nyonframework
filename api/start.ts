@@ -1,7 +1,7 @@
 // Vercel's runtime will inject req/res. Avoid importing @vercel/node types to keep deps light.
 import OpenAI from 'openai';
 import { AgentRuntime } from '../src/core/agent.js';
-import { SupabaseStateStore } from '../src/store/supabaseStore.js';
+import { createStateStoreFromEnvOrBody } from '../src/store/storeFactory.js';
 import type { AgentDefinition } from '../src/core/types.js';
 
 export default async function handler(req: any, res: any) {
@@ -13,14 +13,12 @@ export default async function handler(req: any, res: any) {
 	if (typeof body === 'string') {
 		try { body = JSON.parse(body); } catch { body = {}; }
 	}
-	const supabaseUrl = process.env.SUPABASE_URL || body.supabaseUrl;
-	const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || body.supabaseAnonKey;
 	const { model, userInput, agentId, systemPrompt } = body || {};
-	if (!supabaseUrl || !supabaseAnonKey || !model || !userInput || !agentId) {
+	if (!model || !userInput || !agentId) {
 		res.status(400).json({ error: 'Missing required fields' });
 		return;
 	}
-	const store = new SupabaseStateStore({ url: supabaseUrl, anonKey: supabaseAnonKey });
+	const store = createStateStoreFromEnvOrBody(body);
 	const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 	const runtime = new AgentRuntime({ store, openai });
 	const def: AgentDefinition = { id: agentId, name: agentId, model, systemPrompt };

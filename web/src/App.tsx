@@ -21,6 +21,8 @@ export default function App() {
 	const [input, setInput] = useState<string>('');
 	const [messages, setMessages] = useState<Message[]>([]);
 	const [loading, setLoading] = useState<boolean>(false);
+	const [presets, setPresets] = useState<any[]>([]);
+	const [presetName, setPresetName] = useState<string>('');
 	const listRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
@@ -38,6 +40,7 @@ export default function App() {
 				resume: '/.netlify/functions/resume',
 				run: '/.netlify/functions/run',
 				message: '/.netlify/functions/message',
+				presets: '/.netlify/functions/presets',
 			};
 		}
 		return {
@@ -45,6 +48,7 @@ export default function App() {
 			resume: '/api/resume',
 			run: '/api/run',
 			message: '/api/message',
+			presets: '/api/presets',
 		};
 	}, [provider]);
 
@@ -58,6 +62,17 @@ export default function App() {
 		const data: RunResponse = await resp.json();
 		setMessages(data.messages || []);
 	}, [baseApi, apiPaths.run, supabaseUrl, supabaseAnonKey]);
+
+	const pollUntilSettled = useCallback(async (id: string) => {
+		let delay = 400;
+		for (let i = 0; i < 10; i++) {
+			await refreshRun(id);
+			// naive stop condition: if last assistant message exists, assume a step completed
+			if (messages.some(m => m.role === 'assistant')) break;
+			await new Promise(r => setTimeout(r, delay));
+			delay = Math.min(3000, Math.floor(delay * 1.5));
+		}
+	}, [refreshRun, messages]);
 
 	const startRun = useCallback(async (userInput: string) => {
 		setLoading(true);
@@ -78,11 +93,11 @@ export default function App() {
 					body: JSON.stringify({ supabaseUrl, supabaseAnonKey, agentId, model, runId: newRunId, systemPrompt }),
 				});
 			}
-			await refreshRun(newRunId);
+			await pollUntilSettled(newRunId);
 		} finally {
 			setLoading(false);
 		}
-	}, [supabaseUrl, supabaseAnonKey, model, agentId, systemPrompt, baseApi, apiPaths.start, apiPaths.resume, refreshRun, provider]);
+	}, [supabaseUrl, supabaseAnonKey, model, agentId, systemPrompt, baseApi, apiPaths.start, apiPaths.resume, provider, pollUntilSettled]);
 
 	const sendMessage = useCallback(async (userInput: string) => {
 		setLoading(true);
@@ -93,11 +108,11 @@ export default function App() {
 				body: JSON.stringify({ supabaseUrl, supabaseAnonKey, model, agentId, runId, systemPrompt, userInput }),
 			});
 			if (!resp.ok) throw new Error(`Message failed: ${resp.status}`);
-			await refreshRun(runId);
+			await pollUntilSettled(runId);
 		} finally {
 			setLoading(false);
 		}
-	}, [supabaseUrl, supabaseAnonKey, model, agentId, runId, systemPrompt, baseApi, apiPaths.message, refreshRun]);
+	}, [supabaseUrl, supabaseAnonKey, model, agentId, runId, systemPrompt, baseApi, apiPaths.message, pollUntilSettled]);
 
 	const resumeRun = useCallback(async () => {
 		if (!runId) return;
@@ -126,6 +141,30 @@ export default function App() {
 		setInput('');
 	}, [input, runId, startRun, sendMessage]);
 
+	const loadPresets = useCallback(async () => {
+		const u = new URL(baseApi + apiPaths.presets, window.location.origin);
+		if (supabaseUrl) u.searchParams.set('supabaseUrl', supabaseUrl);
+		if (supabaseAnonKey) u.searchParams.set('supabaseAnonKey', supabaseAnonKey);
+		const resp = await fetch(u.toString());
+		if (!resp.ok) return;
+		const data = await resp.json();
+		setPresets(data.presets || []);
+	}, [apiPaths.presets, baseApi, supabaseUrl, supabaseAnonKey]);
+
+	const savePreset = useCallback(async () => {
+		if (!presetName.trim()) return;
+		const resp = await fetch(baseApi + apiPaths.presets, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ supabaseUrl, supabaseAnonKey, name: presetName.trim(), agentId, model, systemPrompt }),
+		});
+		if (!resp.ok) return;
+		setPresetName('');
+		await loadPresets();
+	}, [presetName, baseApi, apiPaths.presets, supabaseUrl, supabaseAnonKey, agentId, model, systemPrompt, loadPresets]);
+
+	useEffect(() => { if (supabaseUrl && supabaseAnonKey) { void loadPresets(); } }, [supabaseUrl, supabaseAnonKey, loadPresets]);
+
 	return (
 		<div className="h-screen w-screen bg-neutral-950 text-neutral-100 grid grid-cols-12">
 			<aside className="col-span-3 border-r border-neutral-800 p-6 space-y-6">
@@ -150,6 +189,19 @@ export default function App() {
 					<input className="w-full bg-neutral-900 border border-neutral-800 rounded px-3 py-2" value={model} onChange={e => setModel(e.target.value)} />
 					<label className="block text-sm text-neutral-400">System Prompt</label>
 					<textarea className="w-full bg-neutral-900 border border-neutral-800 rounded px-3 py-2 h-28" value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} />
+				</div>
+				<div className="space-y-3">
+					<div className="flex gap-2">
+						<input className="flex-1 bg-neutral-900 border border-neutral-800 rounded px-3 py-2" placeholder="Preset name" value={presetName} onChange={e => setPresetName(e.target.value)} />
+						<button className="bg-neutral-800 hover:bg-neutral-700 rounded px-3" onClick={savePreset}>Save</button>
+					</div>
+					<div className="max-h-48 overflow-auto border border-neutral-800 rounded">
+						{presets.map((p) => (
+							<button key={p.preset_id} className="w-full text-left px-3 py-2 hover:bg-neutral-800" onClick={() => { setAgentId(p.agent_id); setModel(p.model); setSystemPrompt(p.system_prompt || ''); }}>
+								{p.name}
+							</button>
+						))}
+					</div>
 				</div>
 				<div className="space-y-3">
 					<button className="w-full bg-brand-600 hover:bg-brand-500 transition rounded px-4 py-2" disabled={!runId} onClick={resumeRun}>Resume</button>

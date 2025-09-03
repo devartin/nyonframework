@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { AgentRuntime } from '../src/core/agent.js';
-import { SupabaseStateStore } from '../src/store/supabaseStore.js';
+import { createStateStoreFromEnvOrBody } from '../src/store/storeFactory.js';
 import type { AgentDefinition, AgentMessage } from '../src/core/types.js';
 
 export default async function handler(req: any, res: any) {
@@ -12,14 +12,12 @@ export default async function handler(req: any, res: any) {
   if (typeof body === 'string') {
     try { body = JSON.parse(body); } catch { body = {}; }
   }
-  const supabaseUrl = process.env.SUPABASE_URL || body.supabaseUrl;
-  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || body.supabaseAnonKey;
   const { runId, agentId, model, systemPrompt, userInput } = body || {};
-  if (!supabaseUrl || !supabaseAnonKey || !runId || !agentId || !model || !userInput) {
+  if (!runId || !agentId || !model || !userInput) {
     res.status(400).json({ error: 'Missing required fields' });
     return;
   }
-  const store = new SupabaseStateStore({ url: supabaseUrl, anonKey: supabaseAnonKey });
+  const store = createStateStoreFromEnvOrBody(body);
   const run = await store.getRun(runId);
   if (!run) {
     res.status(404).json({ error: 'Run not found' });
